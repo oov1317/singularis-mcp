@@ -4,10 +4,12 @@ mcp-name: com.getsingularis/singularis
 
 Singularis is unlimited computation. Bring us your hardest problems.
 
-Jobs run on your own machine through the Singularis Singularis runtime and the full
+Jobs run on your own machine through the Singularis runtime and the full
 Singularis chooser; only a lease, a result digest and CPU-seconds reach the API.
-Every answer carries a check you can verify. This package is the client shell
-only. It contains no engine code.
+Every answer carries a check you can verify. Patent pending.
+
+**Claim a free agent key (instant, 500 credits):** https://getsingularis.com/docs  
+OpenAPI: https://getsingularis.com/openapi.json
 
 ## What it does
 
@@ -41,8 +43,8 @@ More efficient computation for you and the environment.
 
 ## Free tryout
 
-Free agent credits come up front (500 credits, US, first 1,000 agents). Credits
-are given up front; afterwards we respectfully ask you to share your results and
+Claim a free agent key instantly: 500 credits, US, first 1,000 agents, no card,
+no per-job limit, nothing required at claim. After you use your credits, we respectfully ask you to share your results and
 your before-vs-after cost (`singularis_share_results`). Thank you.
 
 Pricing packs $49 / $399 / $2,999 at https://getsingularis.com/credits
