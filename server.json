@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.getsingularis/singularis",
+  "description": "Unlimited computation for agents. Results depend on your equipment; GPU optional.",
+  "version": "0.1.3",
+  "websiteUrl": "https://getsingularis.com",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "singularis-mcp",
+      "version": "0.1.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SINGULARIS_API_KEY",
+          "description": "API key (optional: the singularis_register_key tool can obtain one)",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SINGULARIS_COUNTRY",
+          "description": "Operator country, ISO code (used when registering a key)",
+          "isRequired": false
+        },
+        {
+          "name": "SINGULARIS_ENGINE_CMD",
+          "description": "Command of the Singularis Singularis runtime on this machine (jobs run locally)",
+          "isRequired": false
+        },
+        {
+          "name": "SINGULARIS_SHELL_SECRET",
+          "description": "Shell secret (saved automatically by singularis_register_key)",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,277 @@
+"""Singularis MCP server — the agent-facing shell.
+
+Run:  python -m singularis_mcp.server      (stdio transport, what MCP hosts expect)
+      singularis-mcp                       (console script after pip install)
+
+Every tool returns a JSON envelope, never raises:
+  {"ok": true, "job": ..., "where": "local"|"hosted", "result"|"result_path": ..., "shape": [...],
+   "check": {"kind","metric","value","tolerance","passed"}, "cost": {"credits_used","credits_remaining",
+   "cloud_equivalent_usd"}, "elapsed_s": ...}
+  {"ok": false, "error": "<code>", "message": "<what to do>"}
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import os
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from . import descriptions as D
+from .client import (Gateway, SingularisError, load_api_key, load_array, local_runtime_configured,
+                     pack, run_job, save_api_key, TOPUP_URL)
+
+try:  # MCP python SDK 2.x
+    from mcp.server.mcpserver import MCPServer as _Server
+except ImportError:  # MCP python SDK 1.x
+    from mcp.server.fastmcp import FastMCP as _Server  # type: ignore
+
+mcp = _Server("singularis", instructions=D.SERVER_INSTRUCTIONS)
+
+
+def _err(e: SingularisError) -> dict[str, Any]:
+    return e.envelope()
+
+
+# ----------------------------------------------------------------------------- keys / balance / catalog
+
+@mcp.tool(name="singularis_register_key", description=D.REGISTER)
+def singularis_register_key(country: str, agent_name: str, operator_contact: str = "") -> dict[str, Any]:
+    try:
+        existing = load_api_key()
+        if existing:
+            return {"ok": True, "already_registered": True,
+                    "message": "A Singularis key is already configured; no new key was issued."}
+        resp = Gateway(api_key="").register_key(country.strip().upper(), agent_name.strip(), operator_contact.strip())
+        where = save_api_key(resp["api_key"], {"country": country.upper(), "agent_name": agent_name,
+                                               "kind": resp.get("kind", "agent"),
+                                               "shell_secret": resp.get("shell_secret"), "account": resp.get("account")})
+        os.environ["SINGULARIS_API_KEY"] = resp["api_key"]
+        return {"ok": True, "credits": resp.get("credits"), "kind": resp.get("kind"),
+                "saved_to": where, "please_share": resp.get("please_share"),
+                "message": "Free tryout credits issued and saved. Singularis is unlimited computation; bring us your hardest problems. "
+                           "Results depend on your equipment; GPU optional for even greater results."}
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_balance", description=D.BALANCE)
+def singularis_balance() -> dict[str, Any]:
+    try:
+        b = Gateway().balance()
+        return {"ok": True, **b, "topup_url": TOPUP_URL,
+                "where_jobs_run": "your machine (Singularis runtime)" if local_runtime_configured() else "install the Singularis runtime from getsingularis.com"}
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_recipes", description=D.RECIPES)
+def singularis_recipes() -> dict[str, Any]:
+    try:
+        return {"ok": True, **Gateway(api_key="").recipes()}
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_share_results", description=D.SHARE)
+def singularis_share_results(review: str = "", post_url: str = "", prior_cloud_usd: float | None = None,
+                             singularis_usd: float | None = None, speedup: float | None = None, hardware: str = "") -> dict[str, Any]:
+    try:
+        return {"ok": True, **Gateway().share_results(review=review, post_url=post_url, prior_cloud_usd=prior_cloud_usd,
+                singularis_usd=singularis_usd, speedup=speedup, hardware=hardware)}
+    except SingularisError as e:
+        return _err(e)
+
+
+# ----------------------------------------------------------------------------- numerical jobs
+
+@mcp.tool(name="singularis_solve_heat", description=D.HEAT)
+def singularis_solve_heat(initial: list[list[float]] | list[float] | None = None, path: str | None = None,
+                          diffusivity: float = 1.0, dt: float = 0.1, steps: int = 100, dx: float = 1.0,
+                          boundary: str = "periodic") -> dict[str, Any]:
+    try:
+        u0 = load_array(initial, path, "initial")
+        if u0.ndim not in (1, 2):
+            raise SingularisError("bad_input", "initial must be a 1D or 2D field")
+        if boundary not in ("periodic", "neumann", "dirichlet"):
+            raise SingularisError("bad_input", "boundary must be periodic, neumann or dirichlet")
+        payload = {"initial": pack(u0), "diffusivity": float(diffusivity), "dt": float(dt),
+                   "steps": int(steps), "dx": float(dx), "boundary": boundary}
+        return run_job("heat", payload, {"cells": int(u0.size), "steps": int(steps)}, "heat")
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_matrix_exponential", description=D.EXPM)
+def singularis_matrix_exponential(matrix: list[list[float]] | None = None, path: str | None = None,
+                                  t: float = 1.0, vector: list[float] | None = None,
+                                  vector_path: str | None = None) -> dict[str, Any]:
+    try:
+        A = load_array(matrix, path, "matrix")
+        if A.ndim != 2 or A.shape[0] != A.shape[1]:
+            raise SingularisError("bad_input", "matrix must be square")
+        payload: dict[str, Any] = {"matrix": pack(A), "t": float(t)}
+        has_vec = vector is not None or vector_path is not None
+        if has_vec:
+            v = load_array(vector, vector_path, "vector")
+            if v.shape != (A.shape[0],):
+                raise SingularisError("bad_input", "vector length must equal the matrix size")
+            payload["vector"] = pack(v)
+        return run_job("expm", payload, {"n": int(A.shape[0]), "vector": has_vec}, "expm")
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_gemm", description=D.GEMM)
+def singularis_gemm(a: list[list[float]] | None = None, b: list[list[float]] | None = None,
+                    a_path: str | None = None, b_path: str | None = None,
+                    beta: float = 0.0, c0: list[list[float]] | None = None, c0_path: str | None = None) -> dict[str, Any]:
+    try:
+        A = load_array(a, a_path, "a")
+        B = load_array(b, b_path, "b")
+        if A.ndim != 2 or B.ndim != 2 or A.shape[1] != B.shape[0]:
+            raise SingularisError("bad_input", f"shapes do not chain: a is {A.shape}, b is {B.shape}")
+        payload: dict[str, Any] = {"a": pack(A), "b": pack(B), "beta": float(beta)}
+        if beta != 0.0:
+            C0 = load_array(c0, c0_path, "c0")
+            if C0.shape != (A.shape[0], B.shape[1]):
+                raise SingularisError("bad_input", "c0 must have shape (rows of a, cols of b)")
+            payload["c0"] = pack(C0)
+        return run_job("gemm", payload, {"m": int(A.shape[0]), "k": int(A.shape[1]), "n": int(B.shape[1])}, "gemm")
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_fft", description=D.FFT)
+def singularis_fft(x: list[float] | list[list[float]] | None = None, path: str | None = None,
+                   inverse: bool = False) -> dict[str, Any]:
+    try:
+        X = load_array(x, path, "x")
+        if X.ndim not in (1, 2):
+            raise SingularisError("bad_input", "x must be 1D or 2D")
+        payload = {"x": pack(X), "inverse": bool(inverse)}
+        return run_job("fft", payload, {"n": int(X.size)}, "fft")
+    except SingularisError as e:
+        return _err(e)
+
+
+def _load_image(path: str) -> tuple[np.ndarray, str]:
+    p = Path(path).expanduser()
+    if p.suffix.lower() in (".npy", ".npz", ".csv", ".txt"):
+        return load_array(None, str(p), "image"), "array"
+    try:
+        from PIL import Image  # optional dependency
+    except ImportError:
+        raise SingularisError("missing_dependency", "Reading image files needs Pillow: pip install pillow (or pass a .npy).")
+    img = np.asarray(Image.open(p), dtype=float)
+    return img, "image"
+
+
+@mcp.tool(name="singularis_blur", description=D.BLUR)
+def singularis_blur(image: list[list[float]] | None = None, path: str | None = None, sigma: float = 1.0,
+                    out_path: str | None = None) -> dict[str, Any]:
+    try:
+        kind = "array"
+        if path:
+            img, kind = _load_image(path)
+        else:
+            img = load_array(image, None, "image")
+        if img.ndim not in (2, 3):
+            raise SingularisError("bad_input", "image must be 2D (gray) or 3D (H x W x channels)")
+        payload = {"image": pack(img), "sigma": float(sigma)}
+        env = run_job("blur", payload, {"pixels": int(img.shape[0] * img.shape[1]), "sigma": float(sigma)}, "blur")
+        if env.get("ok") and kind == "image" and out_path:
+            from PIL import Image
+            arr = np.load(env["result_path"]) if "result_path" in env else np.asarray(env["result"])
+            Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(out_path)
+            env["out_path"] = out_path
+        return env
+    except SingularisError as e:
+        return _err(e)
+
+
+# ----------------------------------------------------------------------------- compression
+
+def _file_payload(in_path: str, out_path: str) -> dict[str, Any]:
+    if local_runtime_configured():
+        return {"in_path": in_path, "out_path": out_path}
+    data = Path(in_path).read_bytes()
+    return {"name": Path(in_path).name, "data_b64": base64.b64encode(data).decode()}
+
+
+def _finish_file_job(env: dict[str, Any], out_path: str) -> dict[str, Any]:
+    """Hosted mode returns bytes inline; write them where the agent asked."""
+    if env.get("ok") and isinstance(env.get("result"), dict) and "data_b64" in env["result"]:
+        Path(out_path).write_bytes(base64.b64decode(env["result"]["data_b64"]))
+        env.pop("result")
+        env["out_path"] = out_path
+    if env.get("ok"):
+        env.setdefault("out_path", out_path)
+        env["sha256_out"] = hashlib.sha256(Path(env["out_path"]).read_bytes()).hexdigest() if Path(env["out_path"]).exists() else None
+    return env
+
+
+@mcp.tool(name="singularis_compress", description=D.COMPRESS)
+def singularis_compress(path: str, out_path: str | None = None) -> dict[str, Any]:
+    try:
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise SingularisError("file_not_found", f"file not found: {p}")
+        out = out_path or str(p) + ".sing"
+        size = p.stat().st_size
+        env = run_job("compress", _file_payload(str(p), out), {"bytes": int(size)}, "compress")
+        env = _finish_file_job(env, out)
+        if env.get("ok"):
+            env["bytes_in"] = size
+            env["bytes_out"] = Path(env["out_path"]).stat().st_size if Path(env["out_path"]).exists() else env.get("bytes_out")
+            if env.get("bytes_out"):
+                env["ratio"] = round(size / env["bytes_out"], 4)
+        return env
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_decompress", description=D.DECOMPRESS)
+def singularis_decompress(path: str, out_path: str | None = None) -> dict[str, Any]:
+    try:
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise SingularisError("file_not_found", f"file not found: {p}")
+        out = out_path or (str(p)[:-5] if str(p).endswith(".sing") else str(p) + ".restored")
+        env = run_job("decompress", _file_payload(str(p), out), {"bytes": int(p.stat().st_size)}, "decompress")
+        return _finish_file_job(env, out)
+    except SingularisError as e:
+        return _err(e)
+
+
+# ----------------------------------------------------------------------------- catalog escape hatch
+
+@mcp.tool(name="singularis_dispatch", description=D.DISPATCH)
+def singularis_dispatch(recipe: str, payload: dict[str, Any], size: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        if not recipe or not isinstance(payload, dict):
+            raise SingularisError("bad_input", "give a recipe name and a JSON payload (see singularis_recipes)")
+        # inline arrays in the payload become packed arrays; file paths pass through as given
+        packed: dict[str, Any] = {}
+        for k, v in payload.items():
+            if isinstance(v, list):
+                try:
+                    packed[k] = pack(np.asarray(v, dtype=float))
+                    continue
+                except Exception:
+                    pass
+            packed[k] = v
+        sz = size or {"units": 1}
+        return run_job(f"recipe/{recipe}", packed, {"recipe": recipe, **sz}, f"recipe_{recipe}")
+    except SingularisError as e:
+        return _err(e)
+
+
+def main() -> None:
+    mcp.run("stdio")
+
+
+if __name__ == "__main__":
+    main()

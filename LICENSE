@@ -1,0 +1,22 @@
+Copyright (c) 2026 Type 1 Civilization Laboratories LLC. All rights reserved.
+
+This software (the "singularis-mcp" client package) is proprietary. It is made
+available solely to install and use with the Singularis service operated by
+Type 1 Civilization Laboratories LLC.
+
+You may download, install, and run this client package for the purpose of
+accessing the Singularis service. No other rights are granted. You may not copy,
+modify, create derivative works of, distribute, sublicense, sell, or reverse
+engineer this software, in whole or in part, except as expressly permitted in
+writing by Type 1 Civilization Laboratories LLC.
+
+This package is the client shell only and contains no engine code.
+
+Singularis is a trademark of Type 1 Civilization Laboratories LLC. Patent pending.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

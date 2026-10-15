@@ -1,0 +1,28 @@
+# Smithery listing (adjust to the registry's current schema at submission time)
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      apiKey:
+        type: string
+        title: Singularis API key
+        description: Optional. Leave empty and call singularis_register_key once for free credits.
+      country:
+        type: string
+        title: Country (ISO code)
+        default: US
+      engineCmd:
+        type: string
+        title: Singularis runtime command
+        description: Command of the Singularis Singularis runtime. Jobs run on your machine; results depend on your equipment, GPU optional for even greater results.
+  commandFunction: |-
+    (config) => ({
+      command: "singularis-mcp",
+      args: [],
+      env: {
+        SINGULARIS_API_KEY: config.apiKey || "",
+        SINGULARIS_COUNTRY: config.country || "US",
+        SINGULARIS_ENGINE_CMD: config.engineCmd || ""
+      }
+    })

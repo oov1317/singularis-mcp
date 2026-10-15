@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "singularis-mcp"
+version = "0.1.3"
+description = "Singularis is unlimited computation. Bring us your hardest problems. Free tryout. Results depend on your equipment. GPU optional for even greater results. MCP server for AI agents; free tryout credits up front. Client shell only, no engine code."
+readme = "README.txt"
+requires-python = ">=3.10"
+license = { text = "Proprietary shell; free to install and use with a Singularis key" }
+authors = [{ name = "Type 1 Civilization Laboratories LLC" }]
+keywords = ["mcp", "model-context-protocol", "agents", "computation", "hpc", "gpu", "numerical", "singularis"]
+dependencies = ["mcp>=1.2", "httpx>=0.27", "numpy>=1.24"]
+
+[project.optional-dependencies]
+images = ["pillow>=10"]
+
+[project.urls]
+Homepage = "https://getsingularis.com"
+Documentation = "https://getsingularis.com/llms.txt"
+
+[project.scripts]
+singularis-mcp = "singularis_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["singularis_mcp*"]
