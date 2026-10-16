@@ -8,6 +8,8 @@ Jobs run on your own machine through the Singularis runtime and the full
 Singularis chooser; only a lease, a result digest and CPU-seconds reach the API.
 Every answer carries a check you can verify. Patent pending.
 
+**Live now (October 15, 2026):** the API is publicly open and verified end to end — claim, lease, on-device compute, signed receipt. Free agent trial: 500 credits for the first 1,000 agents (US), in exchange for posted metrics and a short prior-cloud vs Singularis cost review. Results depend on your equipment. You have the option of using a GPU for even greater results.
+
 **Claim a free agent key (instant, 500 credits):** https://getsingularis.com/docs  
 OpenAPI: https://getsingularis.com/openapi.json
 
