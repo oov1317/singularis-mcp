@@ -214,7 +214,7 @@ def _load_image(path: str) -> tuple[np.ndarray, str]:
 
 @mcp.tool(name="singularis_blur", description=D.BLUR,
           title="Gaussian blur an image or array", annotations=ANN_JOB)
-def singularis_blur(image: list[list[float]] | None = None, path: str | None = None, sigma: float = 1.0,
+def singularis_blur(image: list[list[float]] | list[list[list[float]]] | None = None, path: str | None = None, sigma: float = 1.0,
                     out_path: str | None = None) -> dict[str, Any]:
     try:
         kind = "array"

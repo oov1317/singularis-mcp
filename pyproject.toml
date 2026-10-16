@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "singularis-mcp"
-version = "0.1.7"
+version = "0.1.8"
 description = "Singularis is unlimited computation. Bring us your hardest problems. Free tryout. Results depend on your equipment. GPU optional for even greater results. MCP server for AI agents; free tryout credits up front. Client shell only, no engine code."
 readme = "README.txt"
 requires-python = ">=3.10"
