@@ -89,7 +89,10 @@ optional out_path. Returns the restored path and a hash check."""
 DISPATCH = """Run any job from the Singularis recipe library by name with a JSON payload (see
 singularis_recipes for names and schemas): e.g. 'ridge' (ridge regression solve),
 'circulant_solve', 'kron_apply'. Use when a numerical task is not one of the named tools.
-Returns the recipe's result and its check, with cost."""
+Returns the recipe's result and its check, with cost. Note: the dispatch services
+that keep state between calls (learn, then predict or fuse on the name you taught)
+hold that state inside the running shell -- for multi-step learning, run the shell
+as the always-on daemon (SINGULARIS_ENGINE_URL) so every call reaches the same shell."""
 
 FFT2 = """2D fast Fourier transform (or inverse) of a real 2D field of any shape: image
 spectra, 2D convolution, field filtering. Inputs: x inline or path; inverse flag.
