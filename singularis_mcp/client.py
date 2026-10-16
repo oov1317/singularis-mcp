@@ -260,6 +260,10 @@ class LocalRuntime:
             try:
                 with httpx.Client(timeout=None) as c:
                     r = c.post(url, json=job)
+            except httpx.TimeoutException:
+                # grokfix F8: a timeout is its own human sentence, never a
+                # raw exception name.
+                raise SingularisError("engine_timeout", "The local engine exceeded its time limit; nothing was charged.")
             except Exception as e:
                 # Same trap as Gateway._call: httpx.InvalidURL (proxy
                 # env) is not an HTTPError and must not escape raw.
@@ -270,11 +274,24 @@ class LocalRuntime:
         if cmd:
             proc = subprocess.run(cmd, shell=True, input=json.dumps(job).encode(), capture_output=True)
             if proc.returncode != 0:
+                # grokfix F8 (customer test): exit 124 is a timeout kill
+                # (GNU timeout / host limit). It used to surface as
+                # "Local runtime failed (exit 124): " with an empty tail --
+                # a blank error. It now has its own code and sentence.
+                if proc.returncode == 124:
+                    raise SingularisError("engine_timeout", "The local engine exceeded its time limit; nothing was charged.")
+                err_text = proc.stderr.decode(errors='replace')
+                if not err_text.strip():
+                    # No stderr at all: fall back to the stdout tail so the
+                    # caller never gets an empty message.
+                    tail = _full(proc.stdout.decode(errors='replace')).strip()
+                    raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}) with no error message."
+                                          + (f" Last output: {tail}" if tail else ""))
                 # The runtime's own one-line account of the failure
                 # (fix 0.1.5): the adapter's structured message, or the
                 # exception line at the end of its stderr. Never the
                 # whole stderr -- a stack trace is not an error message.
-                raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}): {_runtime_error_line(proc.stderr.decode(errors='replace'))}")
+                raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}): {_runtime_error_line(err_text)}")
             try:
                 return json.loads(proc.stdout.decode())
             except Exception:
