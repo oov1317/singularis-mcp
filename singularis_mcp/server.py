@@ -186,9 +186,14 @@ def singularis_gemm(a: list[list[float]] | None = None, b: list[list[float]] | N
 def singularis_fft(x: list[float] | list[list[float]] | None = None, path: str | None = None,
                    inverse: bool = False, im: list[float] | list[list[float]] | None = None) -> dict[str, Any]:
     try:
-        X = load_array(x, path, "x")
+        X = load_array(x, path, "x", allow_complex=True)
         if X.ndim not in (1, 2):
             raise SingularisError("bad_input", "x must be 1D or 2D")
+        if np.iscomplexobj(X):
+            if im is not None:
+                raise SingularisError("bad_input", "give the imaginary part either inside x or as im, not both")
+            payload = {"x": pack(X.real), "im": pack(X.imag), "inverse": bool(inverse)}
+            return run_job("fft", payload, {"n": int(X.size)}, "fft")
         payload = {"x": pack(X), "inverse": bool(inverse)}
         if im is not None:
             IM = load_array(im, None, "im")
@@ -331,9 +336,14 @@ def singularis_dispatch(recipe: str, payload: dict[str, Any], size: dict[str, An
 def singularis_fft2(x: list[list[float]] | None = None, path: str | None = None,
                     inverse: bool = False, im: list[list[float]] | None = None) -> dict[str, Any]:
     try:
-        X = load_array(x, path, "x")
+        X = load_array(x, path, "x", allow_complex=True)
         if X.ndim != 2:
             raise SingularisError("bad_input", "fft2 takes a 2D field (use singularis_fft for a 1D signal)")
+        if np.iscomplexobj(X):
+            if im is not None:
+                raise SingularisError("bad_input", "give the imaginary part either inside x or as im, not both")
+            payload = {"x": pack(X.real), "im": pack(X.imag), "inverse": bool(inverse)}
+            return run_job("fft2", payload, {"n": int(X.size)}, "fft2")
         payload = {"x": pack(X), "inverse": bool(inverse)}
         if im is not None:
             IM = load_array(im, None, "im")

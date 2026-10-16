@@ -275,6 +275,64 @@ def load_shell_secret() -> str | None:
 
 # ----------------------------------------------------------------------------- local runtime
 
+# ----------------------------------------------------------------------------- complex on the wire
+# The runtime reads a complex field as two real companions: the field itself
+# (real part) and "<field>_im" (imaginary part) -- except the fft jobs, whose
+# imaginary companion is named "im". A payload value that carries complex data
+# (Python complex values in nested lists, a complex numpy array, or an .npy
+# carrier holding one) is split here, at the one choke point every local job
+# passes through, so no tool has to know the convention. Real-only payloads
+# pass through untouched.
+
+def _complex_array_of(value: Any) -> "np.ndarray | None":
+    """Return value as a complex ndarray if it carries complex data, else None."""
+    if isinstance(value, np.ndarray):
+        return value.astype(complex) if np.iscomplexobj(value) else None
+    if isinstance(value, dict) and ("npy_path" in value or "npy_b64" in value):
+        try:
+            arr = unpack(value)
+        except Exception:
+            return None
+        return arr.astype(complex) if isinstance(arr, np.ndarray) and np.iscomplexobj(arr) else None
+    if isinstance(value, complex):
+        return np.asarray(value, dtype=complex)
+    if isinstance(value, (list, tuple)):
+        def _has_complex(v: Any) -> bool:
+            if isinstance(v, complex):
+                return True
+            if isinstance(v, (list, tuple)):
+                return any(_has_complex(u) for u in v)
+            return False
+        if _has_complex(value):
+            try:
+                return np.asarray(value, dtype=complex)
+            except Exception:
+                return None
+    return None
+
+
+def _encode_complex_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if kind == "dispatch" and isinstance(payload.get("payload"), dict):
+        # A dispatch job wraps the recipe's own payload one level down; the
+        # split belongs to that inner payload, under the recipe's conventions.
+        out = dict(payload)
+        out["payload"] = _encode_complex_payload(str(payload.get("recipe", "")), payload["payload"])
+        return out
+    out: dict[str, Any] = {}
+    for field, value in payload.items():
+        arr = _complex_array_of(value)
+        if arr is None:
+            out[field] = value
+            continue
+        companion = "im" if (kind in ("fft", "fft2") and field == "x") else f"{field}_im"
+        if companion in payload or companion in out:
+            out[field] = value  # caller already split this field by hand; theirs wins
+            continue
+        out[field] = pack(np.asarray(arr.real, dtype=float))
+        out[companion] = pack(np.asarray(arr.imag, dtype=float))
+    return out
+
+
 class LocalRuntime:
     """Connector to the Singularis runtime installed on this machine.
 
@@ -288,7 +346,7 @@ class LocalRuntime:
     """
 
     def run(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-        job = {"kind": kind, "payload": payload}
+        job = {"kind": kind, "payload": _encode_complex_payload(kind, payload)}
         url = os.environ.get("SINGULARIS_ENGINE_URL")
         cmd = os.environ.get("SINGULARIS_ENGINE_CMD")
         if url:
@@ -342,7 +400,7 @@ class LocalRuntime:
 
 # ----------------------------------------------------------------------------- arrays in / out
 
-def load_array(value: Any, path: str | None, name: str) -> np.ndarray:
+def load_array(value: Any, path: str | None, name: str, allow_complex: bool = False) -> np.ndarray:
     """Accept a nested list OR a local file path (.npy, .npz[first array], .csv, .txt)."""
     if path:
         p = Path(path).expanduser()
@@ -361,6 +419,11 @@ def load_array(value: Any, path: str | None, name: str) -> np.ndarray:
     try:
         return np.asarray(value, dtype=float)
     except Exception as e:
+        if allow_complex:
+            try:
+                return np.asarray(value, dtype=complex)
+            except Exception:
+                pass
         raise SingularisError("bad_input", f"{name}: could not read as a numeric array: {e}")
 
 
