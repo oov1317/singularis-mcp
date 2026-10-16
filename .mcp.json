@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "singularis": {
+      "command": "uvx",
+      "args": ["singularis-mcp"],
+      "env": {
+        "SINGULARIS_COUNTRY": "US",
+        "SINGULARIS_ENGINE_CMD": "<your Singularis runtime command>"
+      }
+    }
+  }
+}
