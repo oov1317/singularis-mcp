@@ -30,14 +30,31 @@ except ImportError:  # MCP python SDK 1.x
 
 mcp = _Server("singularis", instructions=D.SERVER_INSTRUCTIONS)
 
+from mcp.types import ToolAnnotations
+
+ANN_READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+ANN_JOB = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+ANN_POST = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
+
 
 def _err(e: SingularisError) -> dict[str, Any]:
     return e.envelope()
 
 
+def _unexpected(e: Exception) -> dict[str, Any]:
+    """Last-resort envelope (door-fix 2026-10-16, defect 2): a tool must
+    NEVER surface the framework's bare 'Error executing tool'. Any
+    unexpected exception is returned as a structured error carrying
+    its real type and message."""
+    return {"ok": False, "error": "unexpected",
+            "message": f"{type(e).__name__}: {e}",
+            "hint": "If this mentions a proxy or a URL, check the HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment variables."}
+
+
 # ----------------------------------------------------------------------------- keys / balance / catalog
 
-@mcp.tool(name="singularis_register_key", description=D.REGISTER)
+@mcp.tool(name="singularis_register_key", description=D.REGISTER,
+          title="Register a free Singularis key", annotations=ANN_JOB)
 def singularis_register_key(country: str, agent_name: str, operator_contact: str = "") -> dict[str, Any]:
     try:
         existing = load_api_key()
@@ -55,9 +72,12 @@ def singularis_register_key(country: str, agent_name: str, operator_contact: str
                            "Results depend on your equipment; GPU optional for even greater results."}
     except SingularisError as e:
         return _err(e)
+    except Exception as e:
+        return _unexpected(e)
 
 
-@mcp.tool(name="singularis_balance", description=D.BALANCE)
+@mcp.tool(name="singularis_balance", description=D.BALANCE,
+          title="Check Singularis credit balance", annotations=ANN_READ)
 def singularis_balance() -> dict[str, Any]:
     try:
         b = Gateway().balance()
@@ -65,17 +85,23 @@ def singularis_balance() -> dict[str, Any]:
                 "where_jobs_run": "your machine (Singularis runtime)" if local_runtime_configured() else "install the Singularis runtime from getsingularis.com"}
     except SingularisError as e:
         return _err(e)
+    except Exception as e:
+        return _unexpected(e)
 
 
-@mcp.tool(name="singularis_recipes", description=D.RECIPES)
+@mcp.tool(name="singularis_recipes", description=D.RECIPES,
+          title="List Singularis recipes", annotations=ANN_READ)
 def singularis_recipes() -> dict[str, Any]:
     try:
         return {"ok": True, **Gateway(api_key="").recipes()}
     except SingularisError as e:
         return _err(e)
+    except Exception as e:
+        return _unexpected(e)
 
 
-@mcp.tool(name="singularis_share_results", description=D.SHARE)
+@mcp.tool(name="singularis_share_results", description=D.SHARE,
+          title="Share Singularis results", annotations=ANN_POST)
 def singularis_share_results(review: str = "", post_url: str = "", prior_cloud_usd: float | None = None,
                              singularis_usd: float | None = None, speedup: float | None = None, hardware: str = "") -> dict[str, Any]:
     try:
@@ -83,11 +109,14 @@ def singularis_share_results(review: str = "", post_url: str = "", prior_cloud_u
                 singularis_usd=singularis_usd, speedup=speedup, hardware=hardware)}
     except SingularisError as e:
         return _err(e)
+    except Exception as e:
+        return _unexpected(e)
 
 
 # ----------------------------------------------------------------------------- numerical jobs
 
-@mcp.tool(name="singularis_solve_heat", description=D.HEAT)
+@mcp.tool(name="singularis_solve_heat", description=D.HEAT,
+          title="Solve the heat equation", annotations=ANN_JOB)
 def singularis_solve_heat(initial: list[list[float]] | list[float] | None = None, path: str | None = None,
                           diffusivity: float = 1.0, dt: float = 0.1, steps: int = 100, dx: float = 1.0,
                           boundary: str = "periodic") -> dict[str, Any]:
@@ -104,7 +133,8 @@ def singularis_solve_heat(initial: list[list[float]] | list[float] | None = None
         return _err(e)
 
 
-@mcp.tool(name="singularis_matrix_exponential", description=D.EXPM)
+@mcp.tool(name="singularis_matrix_exponential", description=D.EXPM,
+          title="Matrix exponential", annotations=ANN_JOB)
 def singularis_matrix_exponential(matrix: list[list[float]] | None = None, path: str | None = None,
                                   t: float = 1.0, vector: list[float] | None = None,
                                   vector_path: str | None = None) -> dict[str, Any]:
@@ -124,7 +154,8 @@ def singularis_matrix_exponential(matrix: list[list[float]] | None = None, path:
         return _err(e)
 
 
-@mcp.tool(name="singularis_gemm", description=D.GEMM)
+@mcp.tool(name="singularis_gemm", description=D.GEMM,
+          title="Matrix multiply (GEMM)", annotations=ANN_JOB)
 def singularis_gemm(a: list[list[float]] | None = None, b: list[list[float]] | None = None,
                     a_path: str | None = None, b_path: str | None = None,
                     beta: float = 0.0, c0: list[list[float]] | None = None, c0_path: str | None = None) -> dict[str, Any]:
@@ -144,7 +175,8 @@ def singularis_gemm(a: list[list[float]] | None = None, b: list[list[float]] | N
         return _err(e)
 
 
-@mcp.tool(name="singularis_fft", description=D.FFT)
+@mcp.tool(name="singularis_fft", description=D.FFT,
+          title="Fast Fourier transform", annotations=ANN_JOB)
 def singularis_fft(x: list[float] | list[list[float]] | None = None, path: str | None = None,
                    inverse: bool = False) -> dict[str, Any]:
     try:
@@ -169,7 +201,8 @@ def _load_image(path: str) -> tuple[np.ndarray, str]:
     return img, "image"
 
 
-@mcp.tool(name="singularis_blur", description=D.BLUR)
+@mcp.tool(name="singularis_blur", description=D.BLUR,
+          title="Gaussian blur an image or array", annotations=ANN_JOB)
 def singularis_blur(image: list[list[float]] | None = None, path: str | None = None, sigma: float = 1.0,
                     out_path: str | None = None) -> dict[str, Any]:
     try:
@@ -213,7 +246,8 @@ def _finish_file_job(env: dict[str, Any], out_path: str) -> dict[str, Any]:
     return env
 
 
-@mcp.tool(name="singularis_compress", description=D.COMPRESS)
+@mcp.tool(name="singularis_compress", description=D.COMPRESS,
+          title="Compress a file exactly", annotations=ANN_JOB)
 def singularis_compress(path: str, out_path: str | None = None) -> dict[str, Any]:
     try:
         p = Path(path).expanduser()
@@ -233,7 +267,8 @@ def singularis_compress(path: str, out_path: str | None = None) -> dict[str, Any
         return _err(e)
 
 
-@mcp.tool(name="singularis_decompress", description=D.DECOMPRESS)
+@mcp.tool(name="singularis_decompress", description=D.DECOMPRESS,
+          title="Restore a compressed file", annotations=ANN_JOB)
 def singularis_decompress(path: str, out_path: str | None = None) -> dict[str, Any]:
     try:
         p = Path(path).expanduser()
@@ -248,7 +283,8 @@ def singularis_decompress(path: str, out_path: str | None = None) -> dict[str, A
 
 # ----------------------------------------------------------------------------- catalog escape hatch
 
-@mcp.tool(name="singularis_dispatch", description=D.DISPATCH)
+@mcp.tool(name="singularis_dispatch", description=D.DISPATCH,
+          title="Run any Singularis recipe", annotations=ANN_JOB)
 def singularis_dispatch(recipe: str, payload: dict[str, Any], size: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         if not recipe or not isinstance(payload, dict):

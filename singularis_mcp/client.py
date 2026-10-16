@@ -95,6 +95,16 @@ class SingularisError(Exception):
         return {"ok": False, "error": self.code, "message": self.message, **self.extra}
 
 
+def _full(text: str, limit: int = 8000) -> str:
+    """Error text without silent truncation (door-fix defect 3): short
+    text passes through whole; long text keeps its head AND its tail --
+    the tail is where the actual exception line lives -- with the
+    omission stated, never hidden."""
+    if len(text) <= limit:
+        return text
+    return text[:2000] + f"\n... [{len(text) - 6000} characters omitted] ...\n" + text[-4000:]
+
+
 # ----------------------------------------------------------------------------- gateway
 
 class Gateway:
@@ -120,27 +130,46 @@ class Gateway:
         try:
             with httpx.Client(timeout=self.timeout) as c:
                 r = c.request(method, url, json=body, headers=self._headers())
-        except httpx.HTTPError as e:
-            raise SingularisError("gateway_unreachable", f"Could not reach the Singularis gateway at {self.base}: {e}")
+        except Exception as e:
+            # NOT just httpx.HTTPError: httpx.InvalidURL is a plain
+            # Exception subclass, and Client CONSTRUCTION raises it when
+            # the environment's proxy variables (a NO_PROXY value with
+            # IPv6 entries is the known case) fail to parse. Letting it
+            # escape is what produced the bare "Error executing tool"
+            # with zero diagnostics (door-fix 2026-10-16, defect 2).
+            # Surface the real exception type + text to the caller.
+            raise SingularisError(
+                "gateway_unreachable",
+                f"Could not reach the Singularis gateway at {self.base}: "
+                f"{type(e).__name__}: {e}. If this mentions a proxy or a "
+                "URL, check the HTTP_PROXY / HTTPS_PROXY / NO_PROXY "
+                "environment variables.",
+            )
         try:
             data = r.json()
         except Exception:
             data = {"detail": r.text}
+        code = data.get("code") if isinstance(data, dict) else None
         if r.status_code == 402:
             raise SingularisError(
                 "credits_exhausted",
                 data.get("detail") or f"Credits exhausted. Top up at {TOPUP_URL} and keep going.",
                 credits_remaining=data.get("credits_remaining", 0),
                 topup_url=TOPUP_URL,
+                http_status=402, gateway_code=code,
             )
         if r.status_code == 401:
-            raise SingularisError("bad_api_key", "The Singularis API key was rejected. Register a new key or check SINGULARIS_API_KEY.")
+            raise SingularisError("bad_api_key", "The Singularis API key was rejected. Register a new key or check SINGULARIS_API_KEY.",
+                                  http_status=401, gateway_code=code)
         if r.status_code == 403:
-            raise SingularisError("not_available", data.get("detail") or "Not available for this key or country.")
+            raise SingularisError("not_available", data.get("detail") or "Not available for this key or country.",
+                                  http_status=403, gateway_code=code)
         if r.status_code == 429:
-            raise SingularisError("limit_reached", data.get("detail") or "A limit was reached; try again later.")
+            raise SingularisError("limit_reached", data.get("detail") or "A limit was reached; try again later.",
+                                  http_status=429, gateway_code=code)
         if r.status_code >= 400:
-            raise SingularisError("gateway_error", f"Gateway returned {r.status_code}: {data.get('detail', data)}")
+            raise SingularisError("gateway_error", f"Gateway returned {r.status_code} ({code}): {data.get('detail', data)}",
+                                  http_status=r.status_code, gateway_code=code)
         return data
 
     # keys / balance / catalog (live Singularis API, /api/v1 -> /v3)
@@ -210,15 +239,23 @@ class LocalRuntime:
         url = os.environ.get("SINGULARIS_ENGINE_URL")
         cmd = os.environ.get("SINGULARIS_ENGINE_CMD")
         if url:
-            with httpx.Client(timeout=None) as c:
-                r = c.post(url, json=job)
+            try:
+                with httpx.Client(timeout=None) as c:
+                    r = c.post(url, json=job)
+            except Exception as e:
+                # Same trap as Gateway._call: httpx.InvalidURL (proxy
+                # env) is not an HTTPError and must not escape raw.
+                raise SingularisError("engine_error", f"Local runtime request failed: {type(e).__name__}: {e}")
             if r.status_code >= 400:
-                raise SingularisError("engine_error", f"Local runtime returned {r.status_code}: {r.text[:500]}")
+                raise SingularisError("engine_error", f"Local runtime returned {r.status_code}: {_full(r.text)}")
             return r.json()
         if cmd:
             proc = subprocess.run(cmd, shell=True, input=json.dumps(job).encode(), capture_output=True)
             if proc.returncode != 0:
-                raise SingularisError("engine_error", f"Local runtime failed: {proc.stderr.decode(errors='replace')[:500]}")
+                # Full error propagation (defect 3): keep the END of
+                # stderr -- that is where the actual exception line
+                # lives -- instead of silently truncating the head.
+                raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}): {_full(proc.stderr.decode(errors='replace'))}")
             try:
                 return json.loads(proc.stdout.decode())
             except Exception:

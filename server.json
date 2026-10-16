@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.getsingularis/singularis",
   "description": "Unlimited computation for agents. Results depend on your equipment; GPU optional.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "websiteUrl": "https://getsingularis.com",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "singularis-mcp",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "transport": {
         "type": "stdio"
       },
