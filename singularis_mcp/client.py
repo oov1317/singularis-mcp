@@ -105,6 +105,24 @@ def _full(text: str, limit: int = 8000) -> str:
     return text[:2000] + f"\n... [{len(text) - 6000} characters omitted] ...\n" + text[-4000:]
 
 
+def _runtime_error_line(stderr_text: str) -> str:
+    """The local runtime's own one-line account of a failure (fix 0.1.5,
+    triple-check defect 2). The adapter ends its stderr with a structured
+    {"error", "message"} JSON line -- quote that message. Failing that,
+    use the last non-empty line, which is where any Python traceback
+    keeps its actual exception. A whole traceback is internals; the
+    caller gets a sentence, never a stack dump."""
+    lines = [l.strip() for l in stderr_text.splitlines() if l.strip()]
+    for l in reversed(lines):
+        try:
+            d = json.loads(l)
+        except Exception:
+            continue
+        if isinstance(d, dict) and d.get("message"):
+            return _full(str(d["message"]), 2000)
+    return _full(lines[-1], 2000) if lines else "no error output"
+
+
 # ----------------------------------------------------------------------------- gateway
 
 class Gateway:
@@ -252,10 +270,11 @@ class LocalRuntime:
         if cmd:
             proc = subprocess.run(cmd, shell=True, input=json.dumps(job).encode(), capture_output=True)
             if proc.returncode != 0:
-                # Full error propagation (defect 3): keep the END of
-                # stderr -- that is where the actual exception line
-                # lives -- instead of silently truncating the head.
-                raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}): {_full(proc.stderr.decode(errors='replace'))}")
+                # The runtime's own one-line account of the failure
+                # (fix 0.1.5): the adapter's structured message, or the
+                # exception line at the end of its stderr. Never the
+                # whole stderr -- a stack trace is not an error message.
+                raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}): {_runtime_error_line(proc.stderr.decode(errors='replace'))}")
             try:
                 return json.loads(proc.stdout.decode())
             except Exception:
@@ -341,7 +360,7 @@ def run_job(kind: str, payload: dict[str, Any], size: dict[str, Any], label: str
     try:
         if not local_runtime_configured():
             raise SingularisError("no_local_runtime",
-                "Singularis runs on your own machine. Install the Singularis Singularis runtime from https://getsingularis.com "
+                "Singularis runs on your own machine. Install the Singularis runtime from https://getsingularis.com "
                 "and set SINGULARIS_ENGINE_CMD (or SINGULARIS_ENGINE_URL). Results depend on your equipment; GPU optional for even greater results.")
         if os.environ.get("SINGULARIS_ENGINE_METERED") == "1":
             # the Singularis runtime leases, locks and settles each job itself; do not lease twice
@@ -389,7 +408,7 @@ def _envelope(kind: str, out: dict[str, Any], cost: dict[str, Any], t0: float, l
         elapsed = time.time() - t0
         env = {"ok": True, "job": kind, "where": "local", "elapsed_s": round(elapsed, 4)}
         env.update(deliver(out.get("result"), label))
-        for k in ("extra", "ratio", "out_path", "bytes_in", "bytes_out"):
+        for k in ("extra", "ratio", "out_path", "bytes_in", "bytes_out", "note"):
             if k in out:
                 env[k] = out[k]
         env["check"] = out.get("check") or {"kind": "none", "passed": None}

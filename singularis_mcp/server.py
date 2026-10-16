@@ -235,14 +235,24 @@ def _file_payload(in_path: str, out_path: str) -> dict[str, Any]:
 
 
 def _finish_file_job(env: dict[str, Any], out_path: str) -> dict[str, Any]:
-    """Hosted mode returns bytes inline; write them where the agent asked."""
+    """Hosted mode returns bytes inline; write them where the agent asked.
+
+    Fix 0.1.5 (triple-check defect 1): a success envelope for a file job
+    must name a file that EXISTS. If the runtime reported success but no
+    output file is on disk, the envelope is rewritten as an error --
+    never again an ok:true with a phantom path."""
     if env.get("ok") and isinstance(env.get("result"), dict) and "data_b64" in env["result"]:
         Path(out_path).write_bytes(base64.b64decode(env["result"]["data_b64"]))
         env.pop("result")
         env["out_path"] = out_path
     if env.get("ok"):
-        env.setdefault("out_path", out_path)
-        env["sha256_out"] = hashlib.sha256(Path(env["out_path"]).read_bytes()).hexdigest() if Path(env["out_path"]).exists() else None
+        op = env.get("out_path") or out_path
+        if not Path(op).exists():
+            return {"ok": False, "error": "output_missing",
+                    "message": f"The job reported success but no file exists at {op}; nothing was written. "
+                               "Treat the job as failed and retry it."}
+        env["out_path"] = op
+        env["sha256_out"] = hashlib.sha256(Path(op).read_bytes()).hexdigest()
     return env
 
 

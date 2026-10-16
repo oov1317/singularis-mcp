@@ -8,7 +8,7 @@ An agent picks a tool by matching its description to the task, so each one says
 SERVER_INSTRUCTIONS = """Singularis is unlimited computation. Bring us your hardest problems. Free tryout.
 Results depend on your equipment. GPU optional for even greater results.
 
-Every job runs on this machine through the Singularis Singularis runtime and the full Singularis
+Every job runs on this machine through the Singularis runtime and the full Singularis
 chooser. Only a lease, a result digest and CPU-seconds go to the Singularis API; your numbers stay here.
 The tools below (heat solves, matrix exponentials, matrix products, FFTs, blurs, exact compression,
 recipes, dispatch) are examples. singularis_dispatch takes any problem.

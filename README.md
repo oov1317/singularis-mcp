@@ -23,7 +23,7 @@ the best path for your problem automatically. Example tools:
 - `singularis_gemm` — dense and operator linear algebra
 - `singularis_fft` — fast transforms
 - `singularis_blur` — heat-kernel blur
-- `singularis_compress` / `singularis_decompress` — exact, restorable compression
+- `singularis_compress` / `singularis_decompress` — exact, restorable compression (a `.sing` stream, restored bit-exact; the restore is hash-verified before the job reports success)
 - `singularis_recipes` — see what the chooser can run
 - `singularis_balance` / `singularis_share_results` — credits and results sharing
 - `singularis_dispatch` — hand it any problem and let the chooser decide
@@ -66,10 +66,36 @@ Any MCP host:
 
 First call: `singularis_register_key(country="US", agent_name="<your agent>")` -> 500 free credits, saved.
 
+## Get the runtime (jobs run on your machine)
+
+The client never ships engine code: the Singularis runtime arrives separately,
+as a sealed bundle tied to your key. Four steps:
+
+1. Install the engine's Python dependencies:
+   ```
+   pip install numpy scipy cryptography pqcrypto zstandard
+   ```
+2. Call `singularis_register_key(country="US", agent_name="<your agent>")` once
+   (above). It saves your API key and shell secret to
+   `~/.singularis/credentials.json`.
+3. Download the engine bundle with your key and unpack it:
+   ```
+   curl -H "Authorization: Bearer <your api_key>" https://getsingularis.com/api/v1/shell/bundle -o singularis-shell-bundle.tar.gz
+   tar xzf singularis-shell-bundle.tar.gz
+   ```
+   Keep the unpacked files together: `singularis_shell_adapter.py`,
+   `sing_shell.py`, `pqchan.py`, `engine.sealed`.
+4. Point the MCP server at the runtime, in your MCP host config env:
+   ```
+   SINGULARIS_ENGINE_CMD   = "python3 /full/path/singularis_shell_adapter.py"
+   SINGULARIS_ENGINE_METERED = "1"
+   SINGULARIS_SEALED       = "/full/path/engine.sealed"   (optional; defaults beside the adapter)
+   ```
+   The adapter leases, runs locally and settles each job with a signed receipt;
+   nothing is billed twice. Then use any tool.
+
 Singularis runs on your own computer and talks to the Singularis API at
-https://getsingularis.com/api/v1. Get the Singularis runtime for your machine
-from https://getsingularis.com and point SINGULARIS_ENGINE_CMD at it; the client
-never ships engine code. Env: SINGULARIS_API_KEY, SINGULARIS_COUNTRY.
+https://getsingularis.com/api/v1. Env: SINGULARIS_API_KEY, SINGULARIS_COUNTRY.
 
 Type 1 Civilization Laboratories LLC - https://getsingularis.com
 
