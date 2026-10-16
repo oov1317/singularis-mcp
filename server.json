@@ -2,13 +2,18 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.getsingularis/singularis",
   "description": "Unlimited computation for agents. Results depend on your equipment; GPU optional.",
-  "version": "0.1.4",
+  "version": "0.1.10",
+  "repository": {
+    "url": "https://github.com/oov1317/singularis-mcp",
+    "source": "github",
+    "id": "oov1317/singularis-mcp"
+  },
   "websiteUrl": "https://getsingularis.com",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "singularis-mcp",
-      "version": "0.1.4",
+      "version": "0.1.10",
       "transport": {
         "type": "stdio"
       },
@@ -26,7 +31,7 @@
         },
         {
           "name": "SINGULARIS_ENGINE_CMD",
-          "description": "Command of the Singularis Singularis runtime on this machine (jobs run locally)",
+          "description": "Command of the Singularis runtime on this machine (jobs run locally)",
           "isRequired": false
         },
         {
