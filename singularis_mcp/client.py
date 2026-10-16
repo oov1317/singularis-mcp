@@ -204,6 +204,7 @@ class Gateway:
 
     def recipes(self) -> dict[str, Any]:
         return {"kinds": sorted(set(KIND_MAP.values())), "tools": KIND_MAP,
+                "recipes": RECIPE_CATALOG, "services": DISPATCH_SERVICES,
                 "note": "Every job goes through the full Singularis chooser on your machine. Bring us your hardest problems."}
 
     # lease / receipt / fail: the job always runs on this machine through the Singularis runtime
@@ -225,7 +226,41 @@ class Gateway:
 
 # tool kind -> live API job kind ("dispatch" hands the job to the full chooser)
 KIND_MAP = {"heat": "heat_eq", "expm": "matexp", "gemm": "dispatch", "fft": "dispatch", "blur": "blur_chain",
-            "compress": "compress", "decompress": "dispatch", "recipe": "recipe_lib"}
+            "compress": "compress", "decompress": "dispatch", "recipe": "recipe_lib",
+            "fft2": "fft2", "mind_merge": "mind_merge", "mind_merge_v2": "mind_merge_v2",
+            "data_carry": "data_carry", "knowledge_packs": "knowledge_packs",
+            "free_universe": "free_universe", "compute_in_transit": "compute_in_transit"}
+
+# The full catalog singularis_dispatch can run by name (0.1.7): every named
+# job kind of the sealed package, with the payload each one takes. File paths
+# are given as strings and read on your machine; arrays are nested lists.
+RECIPE_CATALOG = {
+    "circulant_solve": {"payload": {"c": "first column of the circulant matrix", "y": "right-hand side"}, "does": "Solve C x = y for a circulant C."},
+    "circulant_power": {"payload": {"c": "first column", "k": "power", "x": "vector (optional)"}, "does": "Raise a circulant matrix to a power, optionally applied to a vector."},
+    "toeplitz_matvec": {"payload": {"c": "first column", "r": "first row", "x": "vector"}, "does": "Multiply a Toeplitz matrix by a vector."},
+    "kron_solve": {"payload": {"A": "left factor", "B": "right factor", "Y": "right-hand side"}, "does": "Solve a Kronecker-structured system."},
+    "kron_matvec": {"payload": {"A": "left factor", "B": "right factor", "X": "matrix"}, "does": "Apply a Kronecker product to a matrix."},
+    "banded_solve": {"payload": {"n": "size", "diags": "diagonals by offset", "y": "right-hand side"}, "does": "Solve a banded system."},
+    "heat_eq": {"payload": {"u": "initial field", "r": "diffusion number", "k": "steps", "bc": "periodic (default)"}, "does": "Diffusion / heat evolution."},
+    "matexp": {"payload": {"A": "matrix", "t": "time (default 1)", "x": "vector (optional)"}, "does": "Matrix exponential e^{tA}, or its action on a vector."},
+    "blur_chain": {"payload": {"image": "2D image", "sigma": "blur width"}, "does": "Gaussian blur."},
+    "fft": {"payload": {"x": "1D signal", "inverse": "true for the inverse transform"}, "does": "Discrete Fourier transform of a signal, any length."},
+    "fft2": {"payload": {"x": "2D field", "inverse": "true for the inverse transform"}, "does": "2D discrete Fourier transform, any shape."},
+    "compress": {"payload": {"data": "text or byte list"}, "does": "Compress data into a restorable stream."},
+    "recipe_lib": {"payload": {"op": "list | get", "name": "recipe name"}, "does": "The built-in recipe library."},
+    "mind_merge": {"payload": {"op": "merge | add | remove", "inputs": "mind files", "out": "output file"}, "does": "Merge trained minds by addition -- exact, no retraining."},
+    "mind_merge_v2": {"payload": {"op": "merge | add | remove | merge_quarantine | export_shard | import_shard | merge_shards", "inputs": "mind files", "out": "output file"}, "does": "Mind merging with quarantine of poisoned inputs and signed portable shards."},
+    "data_carry": {"payload": {"op": "pack | verify | merge"}, "does": "Carry many minds' knowledge in one small signed file."},
+    "knowledge_packs": {"payload": {"op": "create | drop | wake | work | return"}, "does": "Send a working knowledge pack to a machine, wake it there, and bring the results home exactly."},
+    "free_universe": {"payload": {"work_dir": "working directory"}, "does": "Run a self-contained universe relay and verify its homecoming."},
+    "compute_in_transit": {"payload": {"op": "fuse_in_transit | twist_in_transit | energy_audit", "tower_in": "sealed tower file"}, "does": "Compute on a sealed tower while it travels, seals verified."},
+    "auto": {"payload": {"op": "apply | solve | power", "operator": "a typed operator spec", "M": "or a dense matrix", "x": "vector"}, "does": "One structured operation through the full chooser."},
+}
+
+# The services singularis_dispatch can call with {"service": <name>, ...}:
+DISPATCH_SERVICES = ["operator", "alloy", "compress", "solve", "function", "stream", "lens",
+                     "provenance", "learn", "predict", "fuse",
+                     "chain", "forge", "signal", "kernel", "brain", "flow"]
 
 
 def load_shell_secret() -> str | None:
@@ -270,7 +305,13 @@ class LocalRuntime:
                 raise SingularisError("engine_error", f"Local runtime request failed: {type(e).__name__}: {e}")
             if r.status_code >= 400:
                 raise SingularisError("engine_error", f"Local runtime returned {r.status_code}: {_full(r.text)}")
-            return r.json()
+            out = r.json()
+            if isinstance(out, dict) and out.get("error") and "result" not in out:
+                # The daemon answers HTTP 200 with the adapter's own
+                # {"error","message"} dict on a refusal/failure; surface it
+                # as the error it is, never as a successful empty result.
+                raise SingularisError(str(out["error"]), str(out.get("message") or out["error"]))
+            return out
         if cmd:
             proc = subprocess.run(cmd, shell=True, input=json.dumps(job).encode(), capture_output=True)
             if proc.returncode != 0:

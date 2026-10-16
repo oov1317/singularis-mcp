@@ -184,12 +184,17 @@ def singularis_gemm(a: list[list[float]] | None = None, b: list[list[float]] | N
 @mcp.tool(name="singularis_fft", description=D.FFT,
           title="Fast Fourier transform", annotations=ANN_JOB)
 def singularis_fft(x: list[float] | list[list[float]] | None = None, path: str | None = None,
-                   inverse: bool = False) -> dict[str, Any]:
+                   inverse: bool = False, im: list[float] | list[list[float]] | None = None) -> dict[str, Any]:
     try:
         X = load_array(x, path, "x")
         if X.ndim not in (1, 2):
             raise SingularisError("bad_input", "x must be 1D or 2D")
         payload = {"x": pack(X), "inverse": bool(inverse)}
+        if im is not None:
+            IM = load_array(im, None, "im")
+            if IM.shape != X.shape:
+                raise SingularisError("bad_input", "im must match the shape of x")
+            payload["im"] = pack(IM)
         return run_job("fft", payload, {"n": int(X.size)}, "fft")
     except SingularisError as e:
         return _err(e)
@@ -317,6 +322,83 @@ def singularis_dispatch(recipe: str, payload: dict[str, Any], size: dict[str, An
             packed[k] = v
         sz = size or {"units": 1}
         return run_job(f"recipe/{recipe}", packed, {"recipe": recipe, **sz}, f"recipe_{recipe}")
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_fft2", description=D.FFT2,
+          title="2D Fourier transform", annotations=ANN_JOB)
+def singularis_fft2(x: list[list[float]] | None = None, path: str | None = None,
+                    inverse: bool = False, im: list[list[float]] | None = None) -> dict[str, Any]:
+    try:
+        X = load_array(x, path, "x")
+        if X.ndim != 2:
+            raise SingularisError("bad_input", "fft2 takes a 2D field (use singularis_fft for a 1D signal)")
+        payload = {"x": pack(X), "inverse": bool(inverse)}
+        if im is not None:
+            IM = load_array(im, None, "im")
+            if IM.shape != X.shape:
+                raise SingularisError("bad_input", "im must match the shape of x")
+            payload["im"] = pack(IM)
+        return run_job("fft2", payload, {"n": int(X.size)}, "fft2")
+    except SingularisError as e:
+        return _err(e)
+
+
+def _product(kind: str, op: str, params: dict[str, Any] | None) -> dict[str, Any]:
+    """One product job by name: op + params pass through untouched (file
+    paths stay strings; the work happens on this machine)."""
+    if not op:
+        raise SingularisError("bad_input", "give the operation, e.g. op='merge' (see singularis_recipes)")
+    pl: dict[str, Any] = {"op": op}
+    pl.update(params or {})
+    return run_job(kind, pl, {"op": op}, kind)
+
+
+@mcp.tool(name="singularis_mind_merge_v2", description=D.MIND_MERGE_V2,
+          title="Merge trained minds (v2: quarantine + shards)", annotations=ANN_JOB)
+def singularis_mind_merge_v2(op: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        return _product("mind_merge_v2", op, params)
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_data_carry", description=D.DATA_CARRY,
+          title="Carry minds' knowledge in one small file", annotations=ANN_JOB)
+def singularis_data_carry(op: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        return _product("data_carry", op, params)
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_knowledge_packs", description=D.KNOWLEDGE_PACKS,
+          title="Knowledge packs that travel and return exactly", annotations=ANN_JOB)
+def singularis_knowledge_packs(op: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        return _product("knowledge_packs", op, params)
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_free_universe", description=D.FREE_UNIVERSE,
+          title="Universe relay with an exact homecoming", annotations=ANN_JOB)
+def singularis_free_universe(params: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        pl: dict[str, Any] = dict(params or {})
+        if not pl.get("work_dir"):
+            raise SingularisError("bad_input", "give params.work_dir, a working directory for the relay")
+        return run_job("free_universe", pl, {"units": 1}, "free_universe")
+    except SingularisError as e:
+        return _err(e)
+
+
+@mcp.tool(name="singularis_compute_in_transit", description=D.COMPUTE_IN_TRANSIT,
+          title="Compute on a sealed tower in transit", annotations=ANN_JOB)
+def singularis_compute_in_transit(op: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        return _product("compute_in_transit", op, params)
     except SingularisError as e:
         return _err(e)
 

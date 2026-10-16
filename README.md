@@ -21,9 +21,15 @@ the best path for your problem automatically. Example tools:
 - `singularis_solve_heat` — diffusion / heat-equation solves on any grid
 - `singularis_matrix_exponential` — e^{tA} and matrix-exponential actions
 - `singularis_gemm` — dense and operator linear algebra
-- `singularis_fft` — fast transforms
-- `singularis_blur` — heat-kernel blur
+- `singularis_fft` — fast transforms of a 1D signal or a 2D field, any size
+- `singularis_fft2` — the explicit 2D transform
+- `singularis_blur` — heat-kernel blur (grayscale, color, any size)
 - `singularis_compress` / `singularis_decompress` — exact, restorable compression (a `.sing` stream, restored bit-exact; the restore is hash-verified before the job reports success)
+- `singularis_mind_merge_v2` — merge trained minds exactly, with quarantine of bad inputs and signed portable shards
+- `singularis_data_carry` — carry many minds' knowledge in one small signed file
+- `singularis_knowledge_packs` — knowledge packs that travel, work, and return exactly
+- `singularis_free_universe` — a self-contained universe relay with an exact homecoming
+- `singularis_compute_in_transit` — compute on a sealed tower while it travels
 - `singularis_recipes` — see what the chooser can run
 - `singularis_balance` / `singularis_share_results` — credits and results sharing
 - `singularis_dispatch` — hand it any problem and let the chooser decide
