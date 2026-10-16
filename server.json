@@ -4,8 +4,9 @@
   "description": "Unlimited computation for agents. Results depend on your equipment; GPU optional.",
   "version": "0.1.5",
   "repository": {
-    "type": "github",
-    "url": "https://github.com/oov1317/singularis-mcp"
+    "url": "https://github.com/oov1317/singularis-mcp",
+    "source": "github",
+    "id": "oov1317/singularis-mcp"
   },
   "websiteUrl": "https://getsingularis.com",
   "packages": [
