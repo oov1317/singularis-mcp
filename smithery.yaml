@@ -1,4 +1,5 @@
-# Smithery listing (adjust to the registry's current schema at submission time)
+# Smithery configuration for the Singularis MCP server.
+# Smithery reads this file when the repository is registered at smithery.ai/new.
 startCommand:
   type: stdio
   configSchema:
@@ -7,7 +8,11 @@ startCommand:
       apiKey:
         type: string
         title: Singularis API key
-        description: Optional. Leave empty and call singularis_register_key once for free credits.
+        description: Optional. Leave empty and call singularis_register_key once to claim 500 free credits (US, first 1,000 agents).
+      shellSecret:
+        type: string
+        title: Singularis shell secret
+        description: Optional. Saved automatically by singularis_register_key together with the API key.
       country:
         type: string
         title: Country (ISO code)
@@ -15,13 +20,14 @@ startCommand:
       engineCmd:
         type: string
         title: Singularis runtime command
-        description: Command of the Singularis Singularis runtime. Jobs run on your machine; results depend on your equipment, GPU optional for even greater results.
+        description: Command of the Singularis runtime on your machine. Jobs run on your machine; results depend on your equipment. You have the option of using a GPU for even greater results.
   commandFunction: |-
     (config) => ({
-      command: "singularis-mcp",
-      args: [],
+      command: "uvx",
+      args: ["singularis-mcp"],
       env: {
         SINGULARIS_API_KEY: config.apiKey || "",
+        SINGULARIS_SHELL_SECRET: config.shellSecret || "",
         SINGULARIS_COUNTRY: config.country || "US",
         SINGULARIS_ENGINE_CMD: config.engineCmd || ""
       }
