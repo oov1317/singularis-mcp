@@ -105,6 +105,24 @@ def _full(text: str, limit: int = 8000) -> str:
     return text[:2000] + f"\n... [{len(text) - 6000} characters omitted] ...\n" + text[-4000:]
 
 
+def _runtime_error_line(stderr_text: str) -> str:
+    """The local runtime's own one-line account of a failure (fix 0.1.5,
+    triple-check defect 2). The adapter ends its stderr with a structured
+    {"error", "message"} JSON line -- quote that message. Failing that,
+    use the last non-empty line, which is where any Python traceback
+    keeps its actual exception. A whole traceback is internals; the
+    caller gets a sentence, never a stack dump."""
+    lines = [l.strip() for l in stderr_text.splitlines() if l.strip()]
+    for l in reversed(lines):
+        try:
+            d = json.loads(l)
+        except Exception:
+            continue
+        if isinstance(d, dict) and d.get("message"):
+            return _full(str(d["message"]), 2000)
+    return _full(lines[-1], 2000) if lines else "no error output"
+
+
 # ----------------------------------------------------------------------------- gateway
 
 class Gateway:
@@ -186,6 +204,7 @@ class Gateway:
 
     def recipes(self) -> dict[str, Any]:
         return {"kinds": sorted(set(KIND_MAP.values())), "tools": KIND_MAP,
+                "recipes": RECIPE_CATALOG, "services": DISPATCH_SERVICES,
                 "note": "Every job goes through the full Singularis chooser on your machine. Bring us your hardest problems."}
 
     # lease / receipt / fail: the job always runs on this machine through the Singularis runtime
@@ -207,7 +226,41 @@ class Gateway:
 
 # tool kind -> live API job kind ("dispatch" hands the job to the full chooser)
 KIND_MAP = {"heat": "heat_eq", "expm": "matexp", "gemm": "dispatch", "fft": "dispatch", "blur": "blur_chain",
-            "compress": "compress", "decompress": "dispatch", "recipe": "recipe_lib"}
+            "compress": "compress", "decompress": "dispatch", "recipe": "recipe_lib",
+            "fft2": "fft2", "mind_merge": "mind_merge", "mind_merge_v2": "mind_merge_v2",
+            "data_carry": "data_carry", "knowledge_packs": "knowledge_packs",
+            "free_universe": "free_universe", "compute_in_transit": "compute_in_transit"}
+
+# The full catalog singularis_dispatch can run by name (0.1.7): every named
+# job kind of the sealed package, with the payload each one takes. File paths
+# are given as strings and read on your machine; arrays are nested lists.
+RECIPE_CATALOG = {
+    "circulant_solve": {"payload": {"c": "first column of the circulant matrix", "y": "right-hand side"}, "does": "Solve C x = y for a circulant C."},
+    "circulant_power": {"payload": {"c": "first column", "k": "power", "x": "vector (optional)"}, "does": "Raise a circulant matrix to a power, optionally applied to a vector."},
+    "toeplitz_matvec": {"payload": {"c": "first column", "r": "first row", "x": "vector"}, "does": "Multiply a Toeplitz matrix by a vector."},
+    "kron_solve": {"payload": {"A": "left factor", "B": "right factor", "Y": "right-hand side"}, "does": "Solve a Kronecker-structured system."},
+    "kron_matvec": {"payload": {"A": "left factor", "B": "right factor", "X": "matrix"}, "does": "Apply a Kronecker product to a matrix."},
+    "banded_solve": {"payload": {"n": "size", "diags": "diagonals by offset", "y": "right-hand side"}, "does": "Solve a banded system."},
+    "heat_eq": {"payload": {"u": "initial field", "r": "diffusion number", "k": "steps", "bc": "periodic (default)"}, "does": "Diffusion / heat evolution."},
+    "matexp": {"payload": {"A": "matrix", "t": "time (default 1)", "x": "vector (optional)"}, "does": "Matrix exponential e^{tA}, or its action on a vector."},
+    "blur_chain": {"payload": {"image": "2D image", "sigma": "blur width"}, "does": "Gaussian blur."},
+    "fft": {"payload": {"x": "1D signal", "inverse": "true for the inverse transform"}, "does": "Discrete Fourier transform of a signal, any length."},
+    "fft2": {"payload": {"x": "2D field", "inverse": "true for the inverse transform"}, "does": "2D discrete Fourier transform, any shape."},
+    "compress": {"payload": {"data": "text or byte list"}, "does": "Compress data into a restorable stream."},
+    "recipe_lib": {"payload": {"op": "list | get", "name": "recipe name"}, "does": "The built-in recipe library."},
+    "mind_merge": {"payload": {"op": "merge | add | remove", "inputs": "mind files", "out": "output file"}, "does": "Merge trained minds by addition -- exact, no retraining."},
+    "mind_merge_v2": {"payload": {"op": "merge | add | remove | merge_quarantine | export_shard | import_shard | merge_shards", "inputs": "mind files", "out": "output file"}, "does": "Mind merging with quarantine of poisoned inputs and signed portable shards."},
+    "data_carry": {"payload": {"op": "pack | verify | merge"}, "does": "Carry many minds' knowledge in one small signed file."},
+    "knowledge_packs": {"payload": {"op": "create | drop | wake | work | return"}, "does": "Send a working knowledge pack to a machine, wake it there, and bring the results home exactly."},
+    "free_universe": {"payload": {"work_dir": "working directory"}, "does": "Run a self-contained universe relay and verify its homecoming."},
+    "compute_in_transit": {"payload": {"op": "fuse_in_transit | twist_in_transit | energy_audit", "tower_in": "sealed tower file"}, "does": "Compute on a sealed tower while it travels, seals verified."},
+    "auto": {"payload": {"op": "apply | solve | power", "operator": "a typed operator spec", "M": "or a dense matrix", "x": "vector"}, "does": "One structured operation through the full chooser."},
+}
+
+# The services singularis_dispatch can call with {"service": <name>, ...}:
+DISPATCH_SERVICES = ["operator", "alloy", "compress", "solve", "function", "stream", "lens",
+                     "provenance", "learn", "predict", "fuse",
+                     "chain", "forge", "signal", "kernel", "brain", "flow"]
 
 
 def load_shell_secret() -> str | None:
@@ -222,6 +275,64 @@ def load_shell_secret() -> str | None:
 
 # ----------------------------------------------------------------------------- local runtime
 
+# ----------------------------------------------------------------------------- complex on the wire
+# The runtime reads a complex field as two real companions: the field itself
+# (real part) and "<field>_im" (imaginary part) -- except the fft jobs, whose
+# imaginary companion is named "im". A payload value that carries complex data
+# (Python complex values in nested lists, a complex numpy array, or an .npy
+# carrier holding one) is split here, at the one choke point every local job
+# passes through, so no tool has to know the convention. Real-only payloads
+# pass through untouched.
+
+def _complex_array_of(value: Any) -> "np.ndarray | None":
+    """Return value as a complex ndarray if it carries complex data, else None."""
+    if isinstance(value, np.ndarray):
+        return value.astype(complex) if np.iscomplexobj(value) else None
+    if isinstance(value, dict) and ("npy_path" in value or "npy_b64" in value):
+        try:
+            arr = unpack(value)
+        except Exception:
+            return None
+        return arr.astype(complex) if isinstance(arr, np.ndarray) and np.iscomplexobj(arr) else None
+    if isinstance(value, complex):
+        return np.asarray(value, dtype=complex)
+    if isinstance(value, (list, tuple)):
+        def _has_complex(v: Any) -> bool:
+            if isinstance(v, complex):
+                return True
+            if isinstance(v, (list, tuple)):
+                return any(_has_complex(u) for u in v)
+            return False
+        if _has_complex(value):
+            try:
+                return np.asarray(value, dtype=complex)
+            except Exception:
+                return None
+    return None
+
+
+def _encode_complex_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if kind == "dispatch" and isinstance(payload.get("payload"), dict):
+        # A dispatch job wraps the recipe's own payload one level down; the
+        # split belongs to that inner payload, under the recipe's conventions.
+        out = dict(payload)
+        out["payload"] = _encode_complex_payload(str(payload.get("recipe", "")), payload["payload"])
+        return out
+    out: dict[str, Any] = {}
+    for field, value in payload.items():
+        arr = _complex_array_of(value)
+        if arr is None:
+            out[field] = value
+            continue
+        companion = "im" if (kind in ("fft", "fft2") and field == "x") else f"{field}_im"
+        if companion in payload or companion in out:
+            out[field] = value  # caller already split this field by hand; theirs wins
+            continue
+        out[field] = pack(np.asarray(arr.real, dtype=float))
+        out[companion] = pack(np.asarray(arr.imag, dtype=float))
+    return out
+
+
 class LocalRuntime:
     """Connector to the Singularis runtime installed on this machine.
 
@@ -235,27 +346,51 @@ class LocalRuntime:
     """
 
     def run(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-        job = {"kind": kind, "payload": payload}
+        job = {"kind": kind, "payload": _encode_complex_payload(kind, payload)}
         url = os.environ.get("SINGULARIS_ENGINE_URL")
         cmd = os.environ.get("SINGULARIS_ENGINE_CMD")
         if url:
             try:
                 with httpx.Client(timeout=None) as c:
                     r = c.post(url, json=job)
+            except httpx.TimeoutException:
+                # grokfix F8: a timeout is its own human sentence, never a
+                # raw exception name.
+                raise SingularisError("engine_timeout", "The local engine exceeded its time limit; nothing was charged.")
             except Exception as e:
                 # Same trap as Gateway._call: httpx.InvalidURL (proxy
                 # env) is not an HTTPError and must not escape raw.
                 raise SingularisError("engine_error", f"Local runtime request failed: {type(e).__name__}: {e}")
             if r.status_code >= 400:
                 raise SingularisError("engine_error", f"Local runtime returned {r.status_code}: {_full(r.text)}")
-            return r.json()
+            out = r.json()
+            if isinstance(out, dict) and out.get("error") and "result" not in out:
+                # The daemon answers HTTP 200 with the adapter's own
+                # {"error","message"} dict on a refusal/failure; surface it
+                # as the error it is, never as a successful empty result.
+                raise SingularisError(str(out["error"]), str(out.get("message") or out["error"]))
+            return out
         if cmd:
             proc = subprocess.run(cmd, shell=True, input=json.dumps(job).encode(), capture_output=True)
             if proc.returncode != 0:
-                # Full error propagation (defect 3): keep the END of
-                # stderr -- that is where the actual exception line
-                # lives -- instead of silently truncating the head.
-                raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}): {_full(proc.stderr.decode(errors='replace'))}")
+                # grokfix F8 (customer test): exit 124 is a timeout kill
+                # (GNU timeout / host limit). It used to surface as
+                # "Local runtime failed (exit 124): " with an empty tail --
+                # a blank error. It now has its own code and sentence.
+                if proc.returncode == 124:
+                    raise SingularisError("engine_timeout", "The local engine exceeded its time limit; nothing was charged.")
+                err_text = proc.stderr.decode(errors='replace')
+                if not err_text.strip():
+                    # No stderr at all: fall back to the stdout tail so the
+                    # caller never gets an empty message.
+                    tail = _full(proc.stdout.decode(errors='replace')).strip()
+                    raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}) with no error message."
+                                          + (f" Last output: {tail}" if tail else ""))
+                # The runtime's own one-line account of the failure
+                # (fix 0.1.5): the adapter's structured message, or the
+                # exception line at the end of its stderr. Never the
+                # whole stderr -- a stack trace is not an error message.
+                raise SingularisError("engine_error", f"Local runtime failed (exit {proc.returncode}): {_runtime_error_line(err_text)}")
             try:
                 return json.loads(proc.stdout.decode())
             except Exception:
@@ -265,7 +400,7 @@ class LocalRuntime:
 
 # ----------------------------------------------------------------------------- arrays in / out
 
-def load_array(value: Any, path: str | None, name: str) -> np.ndarray:
+def load_array(value: Any, path: str | None, name: str, allow_complex: bool = False) -> np.ndarray:
     """Accept a nested list OR a local file path (.npy, .npz[first array], .csv, .txt)."""
     if path:
         p = Path(path).expanduser()
@@ -284,6 +419,11 @@ def load_array(value: Any, path: str | None, name: str) -> np.ndarray:
     try:
         return np.asarray(value, dtype=float)
     except Exception as e:
+        if allow_complex:
+            try:
+                return np.asarray(value, dtype=complex)
+            except Exception:
+                pass
         raise SingularisError("bad_input", f"{name}: could not read as a numeric array: {e}")
 
 
@@ -341,7 +481,7 @@ def run_job(kind: str, payload: dict[str, Any], size: dict[str, Any], label: str
     try:
         if not local_runtime_configured():
             raise SingularisError("no_local_runtime",
-                "Singularis runs on your own machine. Install the Singularis Singularis runtime from https://getsingularis.com "
+                "Singularis runs on your own machine. Install the Singularis runtime from https://getsingularis.com "
                 "and set SINGULARIS_ENGINE_CMD (or SINGULARIS_ENGINE_URL). Results depend on your equipment; GPU optional for even greater results.")
         if os.environ.get("SINGULARIS_ENGINE_METERED") == "1":
             # the Singularis runtime leases, locks and settles each job itself; do not lease twice
@@ -389,7 +529,7 @@ def _envelope(kind: str, out: dict[str, Any], cost: dict[str, Any], t0: float, l
         elapsed = time.time() - t0
         env = {"ok": True, "job": kind, "where": "local", "elapsed_s": round(elapsed, 4)}
         env.update(deliver(out.get("result"), label))
-        for k in ("extra", "ratio", "out_path", "bytes_in", "bytes_out"):
+        for k in ("extra", "ratio", "out_path", "bytes_in", "bytes_out", "note"):
             if k in out:
                 env[k] = out[k]
         env["check"] = out.get("check") or {"kind": "none", "passed": None}
