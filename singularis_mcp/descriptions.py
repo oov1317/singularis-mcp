@@ -8,7 +8,7 @@ An agent picks a tool by matching its description to the task, so each one says
 SERVER_INSTRUCTIONS = """Singularis is unlimited computation. Bring us your hardest problems. Free tryout.
 Results depend on your equipment. GPU optional for even greater results.
 
-Every job runs on this machine through the Singularis Singularis runtime and the full Singularis
+Every job runs on this machine through the Singularis runtime and the full Singularis
 chooser. Only a lease, a result digest and CPU-seconds go to the Singularis API; your numbers stay here.
 The tools below (heat solves, matrix exponentials, matrix products, FFTs, blurs, exact compression,
 recipes, dispatch) are examples. singularis_dispatch takes any problem.
@@ -64,11 +64,13 @@ multiply, including batches expressed as one tall matrix. Inputs: a and b inline
 file paths; optional beta and c0. Returns C (inline or .npy path) with a probe residual
 check (Freivalds-style, independent of how C was computed). Cost scales with 2*m*n*k."""
 
-FFT = """Fast Fourier transform (or inverse) of a real 1D signal or 2D field: spectra,
-convolution, circulant systems, filtering. Inputs: x inline or path; inverse flag.
-Returns the transform as a [real, imag] pair (first axis of the result; inline or a .npy
-path) plus a Parseval energy check. For the inverse, pass that same [real, imag] pair
-back as x with inverse=true. Cost scales with N log N."""
+FFT = """Fast Fourier transform (or inverse) of a 1D signal or 2D field of any size:
+spectra, convolution, circulant systems, filtering. Inputs: x inline or path;
+inverse flag; optional im, the imaginary part of a complex input, same shape as
+x. Returns the transform as separate real and imaginary parts plus a Parseval
+energy check. To invert a transform, pass its real part as x and its imaginary
+part as im with inverse=true -- a complex signal round-trips exactly, imaginary
+part intact. Cost scales with N log N."""
 
 BLUR = """Gaussian blur of a 2D array or an image file (.npy, .png, .jpg) with standard deviation
 sigma: smoothing, denoising, scale-space, preprocessing. Inputs: array inline, or a path;
@@ -85,6 +87,50 @@ DECOMPRESS = """Restore a file compressed by singularis_compress, bit-exact. Inp
 optional out_path. Returns the restored path and a hash check."""
 
 DISPATCH = """Run any job from the Singularis recipe library by name with a JSON payload (see
-singularis_recipes for names and schemas): e.g. 'ridge' (ridge regression solve),
-'circulant_solve', 'kron_apply'. Use when a numerical task is not one of the named tools.
-Returns the recipe's result and its check, with cost."""
+singularis_recipes for names and schemas): e.g. 'circulant_solve',
+'kron_solve', 'kron_matvec'. Use when a numerical task is not one of the named tools.
+Returns the recipe's result and its check, with cost. Note: the dispatch services
+that keep state between calls (learn, then predict or fuse on the name you taught)
+hold that state inside the running shell -- for multi-step learning, run the shell
+as the always-on daemon (SINGULARIS_ENGINE_URL) so every call reaches the same shell."""
+
+FFT2 = """2D fast Fourier transform (or inverse) of a real 2D field of any shape: image
+spectra, 2D convolution, field filtering. Inputs: x inline or path; inverse flag.
+Returns the transform as a [real, imag] pair plus a Parseval energy check. Cost
+scales with N log N. (singularis_fft also accepts a 2D field; this tool is the
+explicit 2D entry.)"""
+
+MIND_MERGE_V2 = """Merge trained minds (model files) into one by exact addition -- no
+retraining, no data leaves this machine. Operations: merge, add, remove,
+merge_quarantine (a poisoned or corrupted input is identified and excluded,
+and the merge proceeds without it), export_shard / import_shard /
+merge_shards (signed portable shards; a tampered shard is refused). Inputs:
+op, the mind file paths, an output path; ridge (default 1e-8). Returns the
+merged digest and counts. Cost: one job, independent of how the minds were
+trained."""
+
+DATA_CARRY = """Carry many minds' knowledge in one small signed file. Operations: pack
+(mind statistic files -> one carry file), verify (check a carry file's seal
+and digest), merge (combine carry files; the merged knowledge equals training
+on all of it). Inputs: op, source/carry paths, output path. Returns digests
+and counts; a tampered carry is refused. Cost: one job per operation."""
+
+KNOWLEDGE_PACKS = """Send a working knowledge pack to another machine and bring its
+results home exactly. Operations: create (from a tower file), drop (install
+a pack on a node), wake (open it with 2-of-3 shares; one share alone is
+refused), work (run ticks on the node), return (bring the state home; the
+homecoming is exact, difference zero). Inputs: op and the paths the op
+needs. Cost: one job per operation."""
+
+FREE_UNIVERSE = """Run a self-contained universe relay in a working directory: a sealed
+packet is born, hops between nodes, learns, and comes home -- the homecoming
+state is verified exact against the origin, and a tampered packet is
+refused. Inputs: work_dir; optional key. Returns the relay report (births,
+hops, per-hop errors, homecoming difference). Cost: one job."""
+
+COMPUTE_IN_TRANSIT = """Compute on a sealed tower while it travels. Operations:
+fuse_in_transit (merge knowledge inside the sealed tower), twist_in_transit
+(transform it into a new sealed tower), energy_audit (report its portal
+energy). The tower's seal is verified before anything runs; a broken seal
+is refused and nothing is charged. Inputs: op, tower_in path, tower_out for
+twist, ridge. Cost: one job per operation."""
